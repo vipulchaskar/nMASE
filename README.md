@@ -23,6 +23,7 @@ Installation and running instructions:
 -
 
 Description of files and folders:
+-
 
 /django - Project folder of third module, Query processing, IR and web interface part.
 
