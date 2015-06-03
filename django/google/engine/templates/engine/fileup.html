@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+
+{% load staticfiles %}
+<html>
+<head>
+  <link rel="shortcut icon" type="image/png" href="/static/images/favicon.ico" />
+  
+  <script src="/static/js/jquery.js"></script>
+  <script>
+    $(document).ready(function(){  
+      function validate() {
+        var datetimevalue = document.getElementById("datetime").value;
+        if(datetimevalue=="") {
+          alert("Please enter a valid time slot");
+        }
+        else {
+          document.getElementById("search").submit();
+        }
+      }
+    });
+  </script>
+  
+  <title> nMASE : Search Engine for Networks</title>
+  <link href="/static/css/bootstrap-combined.min.css" rel="stylesheet">
+  <link rel="stylesheet" type="text/css" media="screen" href="/static/css/bootstrap-datetimepicker.min.css">
+  <!--<link rel="stylesheet" type="text/css" href="/static/css/fileinput.css">-->
+  
+  <style type="text/css">
+    .newsfeed{
+      position: absolute;
+      border: 2px solid gray;
+      padding: 10px;
+      background: #CEE3F6;
+      width: 300px;
+     height: 600px;
+      overflow-y: auto;
+      margin-top: 0%;
+      text-align: left;
+      font-size: 15px;
+    }
+    .hrmain {
+      display: block;
+      height: 1px;
+      border: 0;
+      border-top: 1px solid lightgray;
+      background-color: lightgray;
+      border-color: lightgray;
+      margin-top: 10px;
+      margin-bottom: 10px;
+      padding: 0;
+      width: 100px;
+    }
+  </style>
+</head>	
+
+<body style="text-align:center">
+
+
+{% if user.is_authenticated %}
+<p style="margin-left: 82%; font-size: 21px; font-weight: 200; line-height: 30px; margin-top: 1%">
+  Hello, {{ user.username }}! 
+  <a class="btn btn-primary" href="/accounts/logout" role="button">Sign out</a>
+</p>
+
+{% else %} 
+<p style="margin-left: 85%; font-size: 21px; font-weight: 200; line-height: 30px; margin-top: 1%">
+  {% if fromlogout %}Signed out!{% endif %}
+  <a class="btn btn-primary" href="/accounts/login" role="button">Sign in</a>
+</p>
+{% endif %}
+
+<form method="POST" action="fileup" enctype="multipart/form-data">
+  {% csrf_token %}
+  <input type="file" name="file" id="input-2" class="file" />
+  <input type="submit" name="submit" value="upload" />
+</form>
+
+<div style="margin-top: 150px">
+ 	<img src="/static/images/logo.png" height=200 width=250>
+
+ 	<form method="get" action="results" name="search">
+    <table border=0 style="margin-left:30%">
+      <tr>
+        <td>
+		      <input id="query" style="height:20px; width:500px; font-size:12pt;" type="text" name="Query" size="150">
+        </td>
+        <td>
+          <div id="datetimepicker" class="input-append date">
+            <input type="hidden" name="Query_date" size="150" id="query"></input>
+            <input type="text" name="datetime" id="datetime" style="width:130px; display:none;" value="00/00/0000 00:00:00"></input>
+          </div>
+        </td>
+      </tr>
+    </table>
+    <input class="btn btn-primary" type="submit" name="search" value="  Search  " >
+	</form>
+</div>
+
+    <script type="text/javascript" src="/static/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="/static/js/bootstrap-datetimepicker.min.js"></script>
+    <!--<script type="text/javascript" src="/static/js/fileinput.js"></script>-->
+    <script type="text/javascript">
+      $('#datetimepicker').datetimepicker({
+        format: 'dd/MM/yyyy hh:mm:ss',
+        language: 'en',
+        maskInput: false,
+        pickSeconds: false,
+        pickTime: true,
+        forceParse: false,
+      });
+    {% if slot_not_existing %}
+      alert("Capture for that time slot is not available. Please select another time slot.");
+    {% endif %}
+    </script>
+
+</body>
+
+</html>
+

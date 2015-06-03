@@ -1,0 +1,4 @@
+#!/bin/bash
+gcc packetlogger.c -o packetlogger -lpcap -lpfring -lpthread -lnuma
+gcc importlogger.c -o import.out -lpcap -lpfring -lpthread -lnuma -w
+gcc bitmap_search_comp_new.c -o bitmap_search_comp_new

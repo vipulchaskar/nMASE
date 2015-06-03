@@ -1,0 +1,13 @@
+* Add README file to all directories
+* Create a batch file/C file which can automatically run first and second module in parallel
+* Write a blog post explaining how packet chaining works and provide its link in this repo
+* Remove debugging statements from module 1
+* Remove uncompressed bitmap saving code from module 1
+* Properly comment module 1
+
+Features:
+* Add feature of storing errors in separate error log file whenever they're detected
+* Add support for IPv6
+* Add support for new protocols related to SDN
+* Add support for OpenFlow
+

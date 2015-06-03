@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+
+{% load staticfiles %}
+<html>
+  <head>
+    <link rel="shortcut icon" type="image/png" href="/static/images/favicon.ico" />
+    <script src="/static/js/jquery.js"></script>
+
+    <script>
+      $(document).ready(function(){  
+        function validate() {
+          var datetimevalue = document.getElementById("datetime").value;
+          if(datetimevalue=="") {
+            alert("Please enter a valid time slot");
+          }
+          else {
+            document.getElementById("search").submit();
+          }
+        }
+
+        {% for ele in news %}
+        $("#news{{forloop.counter}}").click(function(){
+          $('#query').val($(this).text());
+        });
+        {%endfor%}
+
+        {% for ele in freqqueries %}
+        $("#freq{{ forloop.counter }}").click(function() {
+          $('#query').val($(this).text());
+        });
+        {% endfor %}
+
+      });
+	</script>
+
+ 	<title> nMASE : Search Engine for Networks</title>
+
+  <!--<link rel="stylesheet" href="/static/css/reset.css"> <!-- CSS reset -->
+  <link rel="stylesheet" href="/static/css/style.css"> <!-- Resource style -->
+  <link href="/static/css/bootstrap-combined.min.css" rel="stylesheet" />
+  <link rel="stylesheet" type="text/css" media="screen" href="/static/css/bootstrap-datetimepicker.min.css" />
+  <link href="/static/css/fonts.css" rel="stylesheet" />
+  
+  <style type="text/css">
+    .newsfeed{
+      text-align: left;
+    }
+    .hrmain {
+      display: block;
+      height: 1px;
+      border: 0;
+      border-top: 1px solid lightgray;
+      background-color: lightgray;
+      border-color: lightgray;
+      margin-top: 10px;
+      margin-bottom: 10px;
+      padding: 0;
+      width: 100px;
+    }
+  </style>
+</head>	
+
+<body style="text-align:center">
+
+<p class="lead" style="position:absolute; margin-top: 0%; margin-left:1%"><a href="#0" class="cd-btn">News feed</a></p>
+
+{% if user.is_authenticated %}
+<p style="margin-left: 75%; margin-top: 1%">
+  <a href="/engine/fileup">Import PCAP</a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <span style="font-size: 21px; font-weight: 200; line-height: 30px;">
+    Hello, {{ user.username }}! <a class="btn btn-primary" href="/accounts/logout" role="button">Sign out</a>
+  </span>
+</p>
+
+{% else %} 
+<p style="margin-left: 78%; margin-top: 1%">
+  <a href="/engine/fileup">Import PCAP</a>&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
+  <span style="font-size: 21px; font-weight: 200; line-height: 30px;">
+    {% if fromlogout %}Signed out!{% endif %}<a class="btn btn-primary" href="/accounts/login" role="button">Sign in</a>
+  </span>
+</p>
+{% endif %}
+
+<div class="cd-panel from-left">
+    <header class="cd-panel-header">
+      <h3>News feed</h3>
+      <a href="#0" class="cd-panel-close">Close</a>
+    </header>
+
+    <div class="cd-panel-container">
+      <div class="cd-panel-content">
+        <div class="newsfeed">
+        {% if news %}
+    
+        {% for ele in news %}
+          <p id="news{{ forloop.counter }}" style="margin-bottom: 0px; margin-top: 0px">{{ ele }} </p>
+          <hr class="hrmain">
+        {% endfor %}
+
+        <hr style="border-color:darkblue">
+        {% endif %}
+  
+        {% if freqqueries %}
+    
+        {% for ele in freqqueries %}
+          <p id="freq{{ forloop.counter }}" style="margin-bottom: 0px; margin-top: 0px">{{ ele }} </p>
+          <hr class="hrmain">
+        {% endfor %}
+    
+        <hr style="border-color:darkblue">
+        {% endif %}
+  
+        {% for ele in feederrors %}
+          <p id="errors{{ forloop.counter }}" style="margin-bottom: 0px; margin-top: 0px">{{ ele }} </p>
+          <hr class="hrmain">
+        {% endfor %}
+        </div>
+      </div> <!-- cd-panel-content -->
+    </div> <!-- cd-panel-container -->
+  </div> <!-- cd-panel -->
+
+  <!--<main class="cd-main-content">
+    <h1>Slide In Panel</h1>
+    <a href="#0" class="cd-btn">Fire Panel</a>
+    <!-- your content here 
+  </main>-->
+
+<div style="margin-top: 120px">
+  <img src="/static/images/logo.png" height=200 width=250>
+
+ 	<form method="get" action="results" name="search">
+    <table border=0 style="margin-left:30%; margin-top:0px">
+      <tr>
+        <td>
+          <input style="width:350px; font-size:12pt; height:30px; margin-top: 0px" type="text" name="Query" size="150" id="query">
+        </td>
+        <td>
+          <input style="width:30px; font-size:12pt; height:30px; margin-top: 0px" type="text" name="Query_date" size="150" id="query">
+        </td>
+        <td>
+          <div id="datetimepicker" class="input-append date" style="margin-top: 13px">
+            <input type="text" name="datetime" id="datetime" style="width:130px; height:100%" value="23/01/2015 21:22:04"></input>
+            <span class="add-on" style="height: 100%">
+              <i data-time-icon="icon-time" data-date-icon="icon-calendar" style="height: 19px"></i>
+            </span>
+          </div>
+        </td>
+      </tr>
+    </table>
+    <input class="btn btn-primary" type="submit" name="search" value="  Search  " onclick="validate();">
+	</form>
+
+</div>
+
+    <script type="text/javascript" src="/static/js/modernizr.js"></script> <!-- Modernizr -->
+    <script type="text/javascript" src="/static/js/main.js"></script> 
+    <script type="text/javascript" src="/static/js/bootstrap.min.js"></script>
+    <script type="text/javascript" src="/static/js/bootstrap-datetimepicker.min.js"></script>
+
+    
+    <script type="text/javascript">
+      $('#datetimepicker').datetimepicker({
+        format: 'dd/MM/yyyy hh:mm:ss',
+        language: 'en',
+        maskInput: false,
+        pickSeconds: false,
+        pickTime: true,
+        forceParse: false,
+      });
+    
+    {% if slot_not_existing %}
+      alert("Capture for that time slot is not available. Please select another time slot.");
+    {% endif %}
+  </script>
+
+</body>
+
+</html>
+

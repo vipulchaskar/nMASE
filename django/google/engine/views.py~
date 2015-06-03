@@ -1,0 +1,1162 @@
+from django.shortcuts import render
+from django.http import HttpResponse
+import struct
+import os
+import re
+import urllib
+import xml.etree.ElementTree as ET
+
+BASE_DIR = os.path.dirname(os.path.dirname(__file__))
+path_flowrec = os.path.join(BASE_DIR, 'flow_rec')				#path to the flow record file.
+path_packetcap = os.path.join(BASE_DIR, 'packetcap.capture')
+
+currentslot = "2014/9/11/12"									#for future use when we would have to retrieve flow records form multiple slots
+
+eth_length = 14
+
+attack_patterns_sqli = [urllib.parse.quote_plus(x) for x in ["'", " UNION SELECT ", "OR 1=1", "--"]]	#Set of SQL Injection Signatures
+attack_patterns_xss = [urllib.parse.quote_plus(x) for x in ["<script>", "'>", "alert("]]				#Set of XSS Signatures 
+#These signature sets are in no way comprehensive. These are just a few trivial signatures.
+
+threshold = 60
+
+def flowrecords(request):
+
+	x = struct.Struct('16s16sHHI')	#Structure definition of flow records to be read. Ref: https://docs.python.org/3/library/struct.html
+	y = struct.Struct('IIHcI')	#Structure definition of packet header records to be read. Ref: https://docs.python.org/3/library/struct.html
+
+	#16s - 16 byte source IP field	(s - char array)
+	#16s - 16 byte dest IP field
+	#HH - Two port numbers field	(H - unsigned short field)
+	#I - First packet offset field	(I - unsigned int field)
+	try:
+
+		with open(path_flowrec,"rb") as f, open(path_packetcap,"rb") as fp:		#Open the file in binary read mode
+		
+			flow_record_list = []
+	
+			while True:
+				buf = f.read(x.size)	#Read a flow record of size = sizeof(struct)
+
+				if len(buf) != x.size:	#If incomplete record read, exit
+					break
+		
+				record = list(x.unpack_from(buf))	#Separate the fields of flow record and store them in a list variable
+		
+				record[0] = str(record[0][:(record[0].find(b'\0'))].decode("utf-8"))	#Since IP addr may occupy less than 16 bytes, we need to truncate it,
+				record[1] = str(record[1][:(record[1].find(b'\0'))].decode("utf-8"))	#To remove garbage value at the end
+		
+				offset = record[4]
+
+				flag=0
+				for i in range(0,10):
+
+					weightages = {"HTTP":0, "FTP":0, "SMTP":0, "DNS":0}
+					
+					fp.seek(offset)						#Jump to the offset of current packet
+
+					buf1 = fp.read(y.size)				#Read a packet header of size = sizeof(struct)
+
+					#Newly fixed
+					if len(buf1) != y.size:				#If incomplete record read, exit
+						break
+
+					'''Structure of header:
+					header[0] : Timestamp (4 bytes)
+					header[1] : ID (4 bytes)
+					header[2] : Length (2 bytes)
+					header[3] : Direction (1 byte)
+					header[4] : Next Offset (4 bytes)
+					'''
+					header = list(y.unpack_from(buf1))	#Unpack packet header 
+
+					packet = fp.read(header[2])			#Read a packet
+
+					tproto, data, data_size = extract_headers(packet) #extract only application data from packet
+					#if i==0:
+					#	record.append(tproto)
+					if tproto>=3:
+						record.append("Unknown")
+						flag=1
+						break
+
+					if tproto==1 and (record[2]==80 or record[3]==80):
+						weightages["HTTP"] += 10
+					if tproto==1 and (record[2]==21 or record[3]==21):
+						weightages["FTP"] += 40
+					if tproto==1 and (record[2]==25 or record[3]==25):
+						weightages["SMTP"] += 40
+					if tproto==2 and (record[2]==53 or record[3]==53):
+						flags = int.from_bytes(data[2:4], byteorder='big')
+						qc = int.from_bytes(data[4:6], byteorder='big')
+						ac = int.from_bytes(data[6:8], byteorder='big')
+						ansc = int.from_bytes(data[8:10], byteorder='big')
+						arc = int.from_bytes(data[10:12], byteorder='big')
+
+						if 0<qc<10 and 0<=ac<20 and 0<=ansc<20 and 0<=arc<20:
+							flag=1
+							record.append("DNS")
+							break
+
+					if data and (data_size != 0):					#if application data found
+						
+						if tproto == 1:
+							'''httpreq = re.match(r'^(GET|POST|OPTIONS|HEAD|PUT|DELETE|CONNECT) (.*?) HTTP/1.[01]\s+Host: (.*?)\s',data, re.IGNORECASE) #RE to match HTTP Request
+							httpres = re.match(r'^HTTP/1.[01] \d\d\d (.*?)\s+(.*)Date:',data, re.DOTALL)							#RE to match HTTP Response
+
+							if httpreq:
+								print("Request match zali")
+							if httpres:
+								print("Response match zala")'''
+
+							http = re.match(r'^((GET|POST|OPTIONS|HEAD|PUT|DELETE|CONNECT) (.*?) HTTP/1.[01]\s+Host:)|(HTTP/1.[01] \d\d\d (.*?)(.*)Date:)',data, re.DOTALL) #RE to match HTTP Request
+							ftp = re.match(r'^([.]{3,6} (.*))|(\d\d\d (.*))',data,re.DOTALL)
+							smtp = re.match(r'^((HELO|EHLO|MAIL FROM:|RCPT TO:|DATA) (.*))|(\d\d\d (.*))',data,re.DOTALL)
+
+							if http:
+								weightages["HTTP"] += 60
+							if ftp:
+								weightages["FTP"] += 35
+							if smtp:
+								weightages["SMTP"] += 35
+						#ALL ACTION WILL HAPPEN HERE
+
+					if weightages["HTTP"] >= threshold:
+						record.append("HTTP")
+						flag=1
+						break
+					if weightages["FTP"] >= threshold:
+						record.append("FTP")
+						flag=1
+						break
+					if weightages["SMTP"] >= threshold:
+						record.append("SMTP")
+						flag=1
+						break
+
+					if header[4] == offset:	#If last packet, exit
+						break
+				
+					offset = header[4]		#Else, take offset of next packet
+
+				#BY THIS TIME, we would have determined what application protocol is present.. Then insert it in the flow_record_list
+
+				if flag==0:
+					record.append("Unknown data")
+				flow_record_list.append(record)									#Finally, add this flow record to list of flow records
+
+			context = {'flow_record_list': flow_record_list, 'current_slot': currentslot}
+
+			#CODE BELOW THIS DEALS WITH CREATING XML FILES
+			httpdict = {}
+			ftpdict = {}
+			smtpdict = {}
+			dnsdict = {}
+
+			for index, record in enumerate(flow_record_list):
+
+				offset = record[4]
+				host = ""
+
+				while True:
+					fp.seek(offset)						#Jump to the offset of current packet
+
+					buf = fp.read(y.size)				#Read a packet header of size = sizeof(struct)
+
+					#Newly fixed
+					if len(buf) != y.size:				#If incomplete record read, exit
+						break
+
+					header = list(y.unpack_from(buf))	#Unpack packet header 
+
+					packet = fp.read(header[2])			#Read a packet
+
+					if record[5] == "HTTP":	
+						m, data_size = extract_http_headers(packet) #extract only HTTP headers from packet
+
+						if m and (data_size != 0):					#if HTTP headers found
+
+							data = str(m.group(1).decode("utf-8"))	#Convert to string notation
+
+							m = re.match(r'^(GET|POST|OPTIONS|HEAD|PUT|DELETE|CONNECT) (.*?) ',data, flags=0) #RE to match HTTP Request
+							n = re.match(r'^HTTP/1.[01] (.*?) ',data, flags=0)							#RE to match HTTP Response
+
+							if m:																		#If HTTP Request,
+								host = re.search(r'Host: (.+)',data, flags=0)							#Get Host field
+								host = host.group(1).strip()
+
+								malicious = "None"
+
+								#Checking for very basic SQL injection or XSS attempt.
+								for pattern in attack_patterns_sqli:
+									if pattern in m.group(2):
+										malicious = "SQL Injection"
+								for pattern in attack_patterns_xss:
+									if pattern in m.group(2):
+										malicious = "XSS"
+
+								if host not in httpdict:
+									httpdict[host] = []
+									httpdict[host].append(header[0])
+
+								httpdict[host].append((index+1, header[2], 1, m.group(1), m.group(2), malicious, header[0]))
+					
+							elif n:	
+																						#If HTTP Response,
+								server = re.search(r'Server: (.+)',data, flags=0)				#Get server field
+								if server:
+									server_name = server.group(1)
+								else:
+									server_name = "-"
+						
+								ctype = re.search(r'Content-Type: (.+)',data, flags=0)			#Get Content-Type field
+								if ctype:
+									ctype_name = ctype.group(1)
+								else:
+									ctype_name = "-"
+
+								httpdict[host].append((index+1, header[2], 2, n.group(1), server_name, ctype_name, header[0])) #Store response metadata
+
+					elif record[5] == "DNS":
+						m, data_size = extract_dns(packet) #extract only DNS from packet
+
+						if m and (data_size != 0):					#if DNS data found
+
+							flags = int.from_bytes(m[2:4], byteorder='big')
+							qc = int.from_bytes(m[4:6], byteorder='big')
+							ac = int.from_bytes(m[6:8], byteorder='big')
+							ansc = int.from_bytes(m[8:10], byteorder='big')
+							arc = int.from_bytes(m[10:12], byteorder='big')
+
+							#print(str(qc) + " " + str(ac) + " " + str(ansc) + " " + str(arc))
+							#print(m)
+
+							curbyte = 12
+							for q in range(qc):
+								question = []
+								count = m[curbyte]
+								#print("value of count is " + str(count))
+
+								while count != 0:
+									question.append(str(m[curbyte+1:curbyte+1+count].decode("utf-8")))
+									curbyte = curbyte + 1 + count
+									count = m[curbyte]
+									#print("value of count is " + str(count))
+							
+								qstring = '.'.join(question)
+								qtype = int.from_bytes(m[curbyte+1:curbyte+3], byteorder='big')
+								
+								if record[2]==53:
+									host = record[0]
+								else:
+									host = record[1]
+
+								if host not in dnsdict:
+									dnsdict[host] = []
+									dnsdict[host].append(header[0])
+
+								if ac==0 and ansc==0 and arc==0:
+									dnsdict[host].append((index+1, header[2], 1, qstring, flags, qtype, header[0]))
+								else:
+									dnsdict[host].append((index+1, header[2], 2, qstring, flags, header[0]))
+	
+					elif record[5] == "FTP":
+
+						m, data_size = extract_ftp(packet) #extract only FTP from packet
+
+						if m and (data_size != 0):					#if FTP data found
+
+							data = str(m.decode("utf-8"))	#Convert to string notation
+
+							m = re.match(r'^(\d{3}) ',data, flags=0) 									#RE to match FTP Response
+							n = re.match(r'^([A-Za-z]{4})(.*?)$',data, flags=0)								#RE to match FTP Request
+
+							host = record[1]
+							if host not in ftpdict:
+								ftpdict[host] = []
+								ftpdict[host].append(header[0])
+
+							if m:																		#If FTP Response,
+								#record_list.append((1,m.group(1),header[0]))							#Store response metadata
+								ftpdict[host].append((index+1, header[2], 2, m.group(1), header[0]))
+							elif n:
+								ftpdict[host].append((index+1, header[2], 1, n.group(1), n.group(2).strip(), header[0]))	
+								#record_list.append((0,n.group(1), n.group(2).strip(), header[0])) #Store request metadata
+
+					elif record[5] == "SMTP":
+
+						m, data_size = extract_smtp(packet) #extract only SMTP from packet
+
+						if m and (data_size != 0):					#if SMTP data found
+
+							data = str(m.decode("utf-8")).lower()	#Convert to string notation (Lower() function is added to facilitate the RE on next lines)
+
+							m = re.match(r'^(\d{3}) ',data, flags=0) 								#RE to match SMTP Response
+							n = re.match(r'^(helo|mail from:|rcpt to:|data|quit)(.*?)$', data, flags=0)		#RE to match SMTP Request
+
+							host = record[1]
+							if host not in smtpdict:
+								smtpdict[host] = []
+								smtpdict[host].append(header[0])
+
+							if m:																		#If SMTP Response,
+								#record_list.append((1,m.group(1),header[0]))							#Store response metadata
+								smtpdict[host].append((index+1, header[2], 2, m.group(1), header[0]))
+							elif n:																							#If SMTP Request
+								#record_list.append((0,n.group(1), n.group(2).strip(), header[0])) #Store request metadata
+								smtpdict[host].append((index+1, header[2], 1, n.group(1), n.group(2).strip(), header[0]))
+
+					if header[4] == offset:	#If incomplete record read, exit
+						break
+				
+					offset = header[4]		#Else, take offset of next packet
+
+			#print(httpdict)
+			#print(dnsdict)
+			#print(ftpdict)
+			#print(smtpdict)
+
+			xmlroot = ET.Element("data")
+
+			for host,hostdata in httpdict.items():
+				httproot = ET.SubElement(xmlroot, "protocol")
+				httproot.set("name", "HTTP")
+
+				hostname = ET.SubElement(httproot, "host")
+				hostname.text = host
+
+				inittime = ET.SubElement(httproot, "init_time")
+				inittime.text = str(hostdata[0])
+
+				curflow = -1
+				curscore = 1000
+				curusage = 0
+
+				for index, listrecord in enumerate(hostdata[1:]):
+					if listrecord[0] != curflow:
+
+						if index != 0:
+							flowroot.set("score", str(curscore))
+							flowroot.set("usage", str(curusage))
+
+						curscore = 1000
+						curusage = 0
+
+						flowroot = ET.SubElement(httproot, "flow")
+
+						flowroot.set("id", str(listrecord[0]))
+
+					curusage += listrecord[1]
+					recordroot = ET.SubElement(flowroot, "record")
+					
+					if listrecord[2] == 1:
+						recordroot.set("type", "request")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						urltag = ET.SubElement(recordroot, "URL")
+						urltag.text = listrecord[4]
+
+						attacktag = ET.SubElement(recordroot, "attack")
+						attacktag.text = listrecord[5]
+
+					else:
+						recordroot.set("type", "response")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						servertag = ET.SubElement(recordroot, "server")
+						servertag.text = listrecord[4]
+
+						ctypetag = ET.SubElement(recordroot, "content_type")
+						ctypetag.text = listrecord[5]
+
+					timestamptag = ET.SubElement(recordroot, "timestamp")
+					timestamptag.text = str(listrecord[6])
+
+				flowroot.set("score", str(curscore))
+				flowroot.set("usage", str(curusage))
+
+			for host,hostdata in dnsdict.items():
+				dnsroot = ET.SubElement(xmlroot, "protocol")
+				dnsroot.set("name", "DNS")
+
+				hostname = ET.SubElement(dnsroot, "host")
+				hostname.text = host
+
+				inittime = ET.SubElement(dnsroot, "init_time")
+				inittime.text = str(hostdata[0])
+
+				curflow = -1
+				curscore = 1000
+				curusage = 0
+
+				for index, listrecord in enumerate(hostdata[1:]):
+					if listrecord[0] != curflow:
+
+						if index != 0:
+							flowroot.set("score", str(curscore))
+							flowroot.set("usage", str(curusage))
+
+						curscore = 1000
+						curusage = 0
+
+						flowroot = ET.SubElement(dnsroot, "flow")
+
+						flowroot.set("id", str(listrecord[0]))
+
+					curusage += listrecord[1]
+					recordroot = ET.SubElement(flowroot, "record")
+					
+					if listrecord[2] == 1:
+						recordroot.set("type", "request")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						flagstag = ET.SubElement(recordroot, "flags")
+						flagstag.text = str(listrecord[4])
+
+						qtypetag = ET.SubElement(recordroot, "type")
+						qtypetag.text = str(listrecord[5])
+
+						timestamptag = ET.SubElement(recordroot, "timestamp")
+						timestamptag.text = str(listrecord[6])
+
+					else:
+						recordroot.set("type", "response")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						flagstag = ET.SubElement(recordroot, "flags")
+						flagstag.text = str(listrecord[4])
+
+						timestamptag = ET.SubElement(recordroot, "timestamp")
+						timestamptag.text = str(listrecord[5])
+
+				flowroot.set("score", str(curscore))
+				flowroot.set("usage", str(curusage))
+
+			for host,hostdata in ftpdict.items():
+				ftproot = ET.SubElement(xmlroot, "protocol")
+				ftproot.set("name", "FTP")
+
+				hostname = ET.SubElement(ftproot, "host")
+				hostname.text = host
+
+				inittime = ET.SubElement(ftproot, "init_time")
+				inittime.text = str(hostdata[0])
+
+				curflow = -1
+				curscore = 1000
+				curusage = 0
+
+				for index, listrecord in enumerate(hostdata[1:]):
+					if listrecord[0] != curflow:
+
+						if index != 0:
+							flowroot.set("score", str(curscore))
+							flowroot.set("usage", str(curusage))
+
+						curscore = 1000
+						curusage = 0
+
+						flowroot = ET.SubElement(ftproot, "flow")
+
+						flowroot.set("id", str(listrecord[0]))
+
+					curusage += listrecord[1]
+					recordroot = ET.SubElement(flowroot, "record")
+					
+					if listrecord[2] == 1:
+						recordroot.set("type", "request")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						argtag = ET.SubElement(recordroot, "argument")
+						argtag.text = listrecord[4]
+
+						timestamptag = ET.SubElement(recordroot, "timestamp")
+						timestamptag.text = str(listrecord[5])
+
+					else:
+						recordroot.set("type", "response")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						timestamptag = ET.SubElement(recordroot, "timestamp")
+						timestamptag.text = str(listrecord[4])
+
+				flowroot.set("score", str(curscore))
+				flowroot.set("usage", str(curusage))
+
+			for host,hostdata in smtpdict.items():
+				smtproot = ET.SubElement(xmlroot, "protocol")
+				smtproot.set("name", "SMTP")
+
+				hostname = ET.SubElement(smtproot, "host")
+				hostname.text = host
+
+				inittime = ET.SubElement(smtproot, "init_time")
+				inittime.text = str(hostdata[0])
+
+				curflow = -1
+				curscore = 1000
+				curusage = 0
+
+				for index, listrecord in enumerate(hostdata[1:]):
+					if listrecord[0] != curflow:
+
+						if index != 0:
+							flowroot.set("score", str(curscore))
+							flowroot.set("usage", str(curusage))
+
+						curscore = 1000
+						curusage = 0
+
+						flowroot = ET.SubElement(smtproot, "flow")
+
+						flowroot.set("id", str(listrecord[0]))
+
+					curusage += listrecord[1]
+					recordroot = ET.SubElement(flowroot, "record")
+					
+					if listrecord[2] == 1:
+						recordroot.set("type", "request")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						argtag = ET.SubElement(recordroot, "argument")
+						argtag.text = listrecord[4]
+
+						timestamptag = ET.SubElement(recordroot, "timestamp")
+						timestamptag.text = str(listrecord[5])
+
+					else:
+						recordroot.set("type", "response")
+
+						message = ET.SubElement(recordroot, "message")
+						message.text = listrecord[3]
+
+						timestamptag = ET.SubElement(recordroot, "timestamp")
+						timestamptag.text = str(listrecord[4])
+
+				flowroot.set("score", str(curscore))
+				flowroot.set("usage", str(curusage))
+
+			tree = ET.ElementTree(xmlroot)
+			tree.write("/home/vipul/Desktop/metadata.xml", xml_declaration=True)
+
+	
+	except FileNotFoundError:
+		notfound = 1
+		context = {'file_not_found': notfound}
+
+	return render(request, 'engine/flowrecords.html', context)
+
+
+def extract_headers(packet):
+
+	#parse packet headers
+	#take first 20 characters for the ip header
+	#if len(packet)<40:
+	#	return 4,3,3
+
+	ip_header = packet[eth_length:20+eth_length]
+
+	#now unpack them :)
+	iph = struct.unpack('!BBHHHBBH4s4s' , ip_header)
+
+	version_ihl = iph[0]
+	ihl = version_ihl & 0xF
+	iph_length = ihl * 4			#Calculate IP header length
+	protocol = iph[6]
+
+	#TCP is 6 UDP is 17..
+	if protocol==6:
+		#Get TCP header fields
+		t = iph_length + eth_length
+		tcp_header = packet[t:t+20]
+
+		#now unpack them :)
+		tcph = struct.unpack('!HHLLBBHHH' , tcp_header)
+	
+		doff_reserved = tcph[4]
+		tcph_length = doff_reserved >> 4	#Calculate TCP header length
+
+		h_size = eth_length + iph_length + tcph_length * 4		#Calculate total length
+		data_size = len(packet) - h_size
+
+		#if data_size==0 :
+		#	return 3,3,3
+
+		#get data from the packet
+		r = re.compile(b"^(.*?)\x0D\x0A\x0D\x0A",re.DOTALL)		#RE to take off only HTTP headers
+		m = r.match(packet[h_size:])
+
+		if m:
+			data = str(m.group(1).decode("utf-8"))
+			return 1, data, data_size
+
+		try:
+			data = str(packet[h_size:].decode("utf-8"))
+			return 1, data, data_size
+		except:
+			return 5,5,5
+
+	elif protocol==17:
+		h_size = eth_length + iph_length + 8		#Calculate total length
+		data_size = len(packet) - h_size
+
+		#get only UDP data from the packet
+		m = packet[h_size:]
+
+		return 2, m, data_size
+
+
+
+def findpackets(request):
+
+	try:
+		portno = int(request.GET['port'])
+	except:
+		return render(request, 'engine/enterport.html')
+
+
+	x = struct.Struct('16s16sHHI')	#Structure definition of flow records to be read. Ref: https://docs.python.org/3/library/struct.html
+
+	try:
+
+		with open(path_flowrec,"rb") as f:		#Open the file in binary read mode
+		
+			flow_record_list = []
+			count=1
+	
+			while True:
+				buf = f.read(x.size)	#Read a flow record of size = sizeof(struct)
+
+				if len(buf) != x.size:	#If incomplete record read, exit
+					break
+		
+				record = list(x.unpack_from(buf))	#Separate the fields of flow record and store them in a list variable
+		
+				record[0] = str(record[0][:(record[0].find(b'\0'))].decode("utf-8"))	#Since IP addr may occupy less than 16 bytes, we need to truncate it,
+				record[1] = str(record[1][:(record[1].find(b'\0'))].decode("utf-8"))	#To remove garbage value at the end
+		
+				record.append(count)
+				count = count + 1
+
+				if record[2]==portno or record[3]==portno:
+					flow_record_list.append(record)									#Finally, add this flow record to list of flow records
+
+			context = {'flow_record_list': flow_record_list, 'current_slot': currentslot}
+	
+	except FileNotFoundError:
+		notfound = 1
+		context = {'file_not_found': notfound}
+
+	context['port_no'] = portno
+
+	return render(request, 'engine/enterport.html', context)
+
+def extract_http_headers(packet):
+
+	#parse packet headers
+	#take first 20 characters for the ip header
+	ip_header = packet[eth_length:20+eth_length]
+
+	#now unpack them :)
+	iph = struct.unpack('!BBHHHBBH4s4s' , ip_header)
+
+	version_ihl = iph[0]
+	ihl = version_ihl & 0xF
+	iph_length = ihl * 4			#Calculate IP header length
+
+	#Get TCP header fields
+	t = iph_length + eth_length
+	tcp_header = packet[t:t+20]
+
+	#now unpack them :)
+	tcph = struct.unpack('!HHLLBBHHH' , tcp_header)
+	
+	doff_reserved = tcph[4]
+	tcph_length = doff_reserved >> 4	#Calculate TCP header length
+
+	h_size = eth_length + iph_length + tcph_length * 4		#Calculate total length
+	data_size = len(packet) - h_size
+
+	#get data from the packet
+	r = re.compile(b"^(.*?)\x0D\x0A\x0D\x0A",re.DOTALL)		#RE to take off only HTTP headers
+	m = r.match(packet[h_size:])
+
+	return m, data_size
+
+
+def HTTPDetail(request):
+
+	try:
+		offset = int(request.GET['offset'])
+		flowid = request.GET['flowid']
+	except:
+		return HttpResponse("Please enter an offset AND flowid value.")
+
+	x = struct.Struct('IIHcI')	#Structure definition of packet header records to be read. Ref: https://docs.python.org/3/library/struct.html
+
+	try:
+
+		#record_list = [offset]
+		record_list = []
+
+		try:										#initialize whether to show metadata grouped or not
+			grouping = int(request.GET['grouping'])
+		except:
+			grouping = 0
+		website = ''
+		
+		with open(path_packetcap,"rb") as f:		#Open the packet capture file in binary read mode
+	
+			while True:
+				f.seek(offset)						#Jump to the offset of current packet
+
+				buf = f.read(x.size)				#Read a packet header of size = sizeof(struct)
+
+				#Newly fixed
+				if len(buf) != x.size:				#If incomplete record read, exit
+					break
+
+				'''Structure of header:
+				header[0] : Timestamp (4 bytes)
+				header[1] : ID (4 bytes)
+				header[2] : Length (2 bytes)
+				header[3] : Direction (1 byte)
+				header[4] : Next Offset (4 bytes)
+				'''
+				header = list(x.unpack_from(buf))	#Unpack packet header 
+
+				packet = f.read(header[2])			#Read a packet
+
+				m, data_size = extract_http_headers(packet) #extract only HTTP headers from packet
+
+				if m and (data_size != 0):					#if HTTP headers found
+
+					data = str(m.group(1).decode("utf-8"))	#Convert to string notation
+
+					#Debugging statements
+					#record_list.append(packet[h_size:])
+					#record_list.append(data)
+
+					m = re.match(r'^(GET|POST|OPTIONS|HEAD|PUT|DELETE|CONNECT) (.*?) ',data, flags=0) #RE to match HTTP Request
+					n = re.match(r'^HTTP/1.[01] (.*?) ',data, flags=0)							#RE to match HTTP Response
+
+					if m:																		#If HTTP Request,
+						host = re.search(r'Host: (.+)',data, flags=0)							#Get Host field
+
+						malicious = "no"
+
+						#Checking for very basic SQL injection or XSS attempt.
+						for pattern in attack_patterns_sqli:
+							if pattern in m.group(2):
+								malicious = "SQL Injection"
+						for pattern in attack_patterns_xss:
+							if pattern in m.group(2):
+								malicious = "XSS"
+
+						if grouping==1:
+							website = host.group(1).strip()
+							record_list.append((0,m.group(1), m.group(2), header[0], malicious))
+						else:
+							record_list.append((0,m.group(1), host.group(1).strip() + m.group(2), header[0],malicious))
+					
+					elif n:	
+																						#If HTTP Response,
+						server = re.search(r'Server: (.+)',data, flags=0)				#Get server field
+						if server:
+							server_name = server.group(1)
+						else:
+							server_name = "-"
+						
+						ctype = re.search(r'Content-Type: (.+)',data, flags=0)			#Get Content-Type field
+						if ctype:
+							ctype_name = ctype.group(1)
+						else:
+							ctype_name = "-"
+
+						record_list.append((1,n.group(1), server_name, ctype_name, header[0])) #Store response metadata'''
+
+					#record_list.append(header[4])
+
+				if header[4] == offset:	#If incomplete record read, exit
+					break
+				
+				offset = header[4]		#Else, take offset of next packet
+		
+		#return HttpResponse([str(packet) + "\n\n\n" for packet in record_list])
+		context = {'record_list': record_list, 'current_slot': currentslot, 'flowid': flowid, 'grouping': website}
+	
+	except FileNotFoundError:
+		notfound = 1
+		context = {'file_not_found': notfound}
+		#return HttpResponse("File not found.")
+
+	return render(request,'engine/httpdetail.html',context)
+
+def extract_ftp(packet):
+
+	#parse packet headers
+	#take first 20 characters for the ip header
+	ip_header = packet[eth_length:20+eth_length]
+
+	#now unpack them :)
+	iph = struct.unpack('!BBHHHBBH4s4s' , ip_header)
+
+	version_ihl = iph[0]
+	ihl = version_ihl & 0xF
+	iph_length = ihl * 4			#Calculate IP header length
+
+	#Get TCP header fields
+	t = iph_length + eth_length
+	tcp_header = packet[t:t+20]
+
+	#now unpack them :)
+	tcph = struct.unpack('!HHLLBBHHH' , tcp_header)
+	
+	doff_reserved = tcph[4]
+	tcph_length = doff_reserved >> 4	#Calculate TCP header length
+
+	h_size = eth_length + iph_length + tcph_length * 4		#Calculate total length
+	data_size = len(packet) - h_size
+
+	#get only FTP data from the packet
+	m = packet[h_size:]
+
+	return m, data_size
+
+
+def FTPDetail(request):
+
+	try:
+		offset = int(request.GET['offset'])
+		flowid = request.GET['flowid']
+	except:
+		return HttpResponse("Please enter an offset AND flowid value.")
+
+	x = struct.Struct('IIHcI')	#Structure definition of packet header records to be read. Ref: https://docs.python.org/3/library/struct.html
+
+	try:
+
+		#record_list = [offset]
+		record_list = []
+
+		try:										#initialize whether to show metadata grouped or not
+			grouping = int(request.GET['grouping'])
+		except:
+			grouping = 0
+		website = ''
+		
+		with open(path_packetcap,"rb") as f:		#Open the packet capture file in binary read mode
+	
+			while True:
+				f.seek(offset)						#Jump to the offset of current packet
+
+				buf = f.read(x.size)				#Read a packet header of size = sizeof(struct)
+
+				#Newly fixed
+				if len(buf) != x.size:				#If incomplete record read, exit
+					break
+
+				'''Structure of header:
+				header[0] : Timestamp (4 bytes)
+				header[1] : ID (4 bytes)
+				header[2] : Length (2 bytes)
+				header[3] : Direction (1 byte)
+				header[4] : Next Offset (4 bytes)
+				'''
+				header = list(x.unpack_from(buf))	#Unpack packet header 
+
+				packet = f.read(header[2])			#Read a packet
+
+				m, data_size = extract_ftp(packet) #extract only FTP from packet
+
+				if m and (data_size != 0):					#if FTP data found
+
+					data = str(m.decode("utf-8"))	#Convert to string notation
+
+					#Debugging statements
+					#record_list.append(packet[h_size:])
+					#record_list.append(data)
+
+					m = re.match(r'^(\d{3}) ',data, flags=0) 									#RE to match FTP Response
+					n = re.match(r'^([A-Za-z]{4})(.*?)$',data, flags=0)								#RE to match FTP Request
+
+					if m:																		#If FTP Response,
+
+						#if grouping==1:
+						#	website = host.group(1).strip()
+						#	record_list.append((0,m.group(1), m.group(2), header[0], malicious))
+						#else:
+						record_list.append((1,m.group(1),header[0]))							#Store response metadata
+
+					elif n:	
+																						#If FTP Request,
+
+						record_list.append((0,n.group(1), n.group(2).strip(), header[0])) #Store request metadata
+
+					#record_list.append(header[4])
+
+				if header[4] == offset:	#If incomplete record read, exit
+					break
+				
+				offset = header[4]		#Else, take offset of next packet
+		
+		#return HttpResponse([str(packet) + "\n\n\n" for packet in record_list])
+		context = {'record_list': record_list, 'current_slot': currentslot, 'flowid': flowid}
+	
+	except FileNotFoundError:
+		notfound = 1
+		context = {'file_not_found': notfound}
+		#return HttpResponse("File not found.")
+
+	return render(request,'engine/ftpdetail.html',context)
+
+def extract_smtp(packet):
+
+	#parse packet headers
+	#take first 20 characters for the ip header
+	ip_header = packet[eth_length:20+eth_length]
+
+	#now unpack them :)
+	iph = struct.unpack('!BBHHHBBH4s4s' , ip_header)
+
+	version_ihl = iph[0]
+	ihl = version_ihl & 0xF
+	iph_length = ihl * 4			#Calculate IP header length
+
+	#Get TCP header fields
+	t = iph_length + eth_length
+	tcp_header = packet[t:t+20]
+
+	#now unpack them :)
+	tcph = struct.unpack('!HHLLBBHHH' , tcp_header)
+	
+	doff_reserved = tcph[4]
+	tcph_length = doff_reserved >> 4	#Calculate TCP header length
+
+	h_size = eth_length + iph_length + tcph_length * 4		#Calculate total length
+	data_size = len(packet) - h_size
+
+	#get only SMTP data from the packet
+	m = packet[h_size:]
+
+	return m, data_size
+
+
+def SMTPDetail(request):
+	
+	try:
+		offset = int(request.GET['offset'])
+		flowid = request.GET['flowid']
+	except:
+		return HttpResponse("Please enter an offset AND flowid value.")
+
+	x = struct.Struct('IIHcI')	#Structure definition of packet header records to be read. Ref: https://docs.python.org/3/library/struct.html
+
+	try:
+
+		#record_list = [offset]
+		record_list = []
+
+		try:										#initialize whether to show metadata grouped or not
+			grouping = int(request.GET['grouping'])
+		except:
+			grouping = 0
+		website = ''								#Parameter to be grouped on -- kept blank for now
+		
+		with open(path_packetcap,"rb") as f:		#Open the packet capture file in binary read mode
+	
+			while True:
+				f.seek(offset)						#Jump to the offset of current packet
+
+				buf = f.read(x.size)				#Read a packet header of size = sizeof(struct)
+
+				#Newly fixed
+				if len(buf) != x.size:				#If incomplete record read, exit
+					break
+
+				'''Structure of header:
+				header[0] : Timestamp (4 bytes)
+				header[1] : ID (4 bytes)
+				header[2] : Length (2 bytes)
+				header[3] : Direction (1 byte)
+				header[4] : Next Offset (4 bytes)
+				'''
+				header = list(x.unpack_from(buf))	#Unpack packet header 
+
+				packet = f.read(header[2])			#Read a packet
+
+				m, data_size = extract_smtp(packet) #extract only SMTP from packet
+
+				if m and (data_size != 0):					#if SMTP data found
+
+					data = str(m.decode("utf-8")).lower()	#Convert to string notation (Lower() function is added to facilitate the RE on next lines)
+
+					#Debugging statements
+					#record_list.append(packet[h_size:])
+					#record_list.append(data)
+
+					m = re.match(r'^(\d{3}) ',data, flags=0) 								#RE to match SMTP Response
+					n = re.match(r'^(helo|mail from:|rcpt to:|data|quit)(.*?)$', data, flags=0)		#RE to match SMTP Request
+
+					if m:																		#If SMTP Response,
+
+						#if grouping==1:
+						#	website = host.group(1).strip()
+						#	record_list.append((0,m.group(1), m.group(2), header[0], malicious))
+						#else:
+						record_list.append((1,m.group(1),header[0]))							#Store response metadata
+
+					elif n:	
+																						#If SMTP Request,
+
+						record_list.append((0,n.group(1), n.group(2).strip(), header[0])) #Store request metadata
+
+					#record_list.append(header[4])
+
+				if header[4] == offset:	#If incomplete record read, exit
+					break
+				
+				offset = header[4]		#Else, take offset of next packet
+		
+		#return HttpResponse([str(packet) + "\n\n\n" for packet in record_list])
+		context = {'record_list': record_list, 'current_slot': currentslot, 'flowid': flowid}
+	
+	except FileNotFoundError:
+		notfound = 1
+		context = {'file_not_found': notfound}
+		#return HttpResponse("File not found.")
+
+	return render(request,'engine/smtpdetail.html',context)
+
+def extract_dns(packet):
+
+	#parse packet headers
+	#take first 20 characters for the ip header
+	ip_header = packet[eth_length:20+eth_length]
+
+	#now unpack them :)
+	iph = struct.unpack('!BBHHHBBH4s4s' , ip_header)
+
+	version_ihl = iph[0]
+	ihl = version_ihl & 0xF
+	iph_length = ihl * 4			#Calculate IP header length
+
+	h_size = eth_length + iph_length + 8		#Calculate total length
+	data_size = len(packet) - h_size
+
+	#get only DNS data from the packet
+	m = packet[h_size:]
+
+	return m, data_size
+
+
+def DNSDetail(request):
+
+	try:
+		offset = int(request.GET['offset'])
+		flowid = request.GET['flowid']
+	except:
+		return HttpResponse("Please enter an offset AND flowid value.")
+
+	x = struct.Struct('IIHcI')	#Structure definition of packet header records to be read. Ref: https://docs.python.org/3/library/struct.html
+
+	try:
+
+		#record_list = [offset]
+		record_list = []
+
+		try:										#initialize whether to show metadata grouped or not
+			grouping = int(request.GET['grouping'])
+		except:
+			grouping = 0
+		server = ''									#Parameter to be grouped on -- kept blank for now
+		
+		with open(path_packetcap,"rb") as f:		#Open the packet capture file in binary read mode
+	
+			while True:
+				f.seek(offset)						#Jump to the offset of current packet
+
+				buf = f.read(x.size)				#Read a packet header of size = sizeof(struct)
+
+				#Newly fixed
+				if len(buf) != x.size:				#If incomplete record read, exit
+					break
+
+				'''Structure of header:
+				header[0] : Timestamp (4 bytes)
+				header[1] : ID (4 bytes)
+				header[2] : Length (2 bytes)
+				header[3] : Direction (1 byte)
+				header[4] : Next Offset (4 bytes)
+				'''
+				header = list(x.unpack_from(buf))	#Unpack packet header 
+
+				packet = f.read(header[2])			#Read a packet
+
+				m, data_size = extract_dns(packet) #extract only DNS from packet
+
+				if m and (data_size != 0):					#if DNS data found
+
+					flags = int.from_bytes(m[2:4], byteorder='big')
+					qc = int.from_bytes(m[4:6], byteorder='big')
+					ac = int.from_bytes(m[6:8], byteorder='big')
+					ansc = int.from_bytes(m[8:10], byteorder='big')
+					arc = int.from_bytes(m[10:12], byteorder='big')
+
+					print(str(qc) + " " + str(ac) + " " + str(ansc) + " " + str(arc))
+					print(m)
+
+					curbyte = 12
+					for q in range(qc):
+						question = []
+						count = m[curbyte]
+						print("value of count is " + str(count))
+
+						while count != 0:
+							question.append(str(m[curbyte+1:curbyte+1+count].decode("utf-8")))
+							curbyte = curbyte + 1 + count
+							count = m[curbyte]
+							print("value of count is " + str(count))
+							
+						qstring = '.'.join(question)
+						qtype = int.from_bytes(m[curbyte+1:curbyte+3], byteorder='big')
+						
+						if ac==0 and ansc==0 and arc==0:
+							record_list.append((0,flags,qstring,qtype,header[0]))
+						else:
+							record_list.append((1,flags,qstring,qtype,header[0]))
+
+					#data = str(m.decode("utf-8")).lower()	#Convert to string notation (Lower() function is added to facilitate the RE on next lines)
+
+					#Debugging statements
+					#record_list.append(packet[h_size:])
+					#record_list.append(data)
+
+				if header[4] == offset:	#If incomplete record read, exit
+					break
+				
+				offset = header[4]		#Else, take offset of next packet
+		
+		#return HttpResponse([str(packet) + "\n\n\n" for packet in record_list])
+		context = {'record_list': record_list, 'current_slot': currentslot, 'flowid': flowid}
+	
+	except FileNotFoundError:
+		notfound = 1
+		context = {'file_not_found': notfound}
+		#return HttpResponse("File not found.")
+
+	return render(request,'engine/dnsdetail.html',context)	

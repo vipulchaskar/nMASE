@@ -1,0 +1,3 @@
+#!/bin/bash
+cd django/google/
+sudo python3 manage.py runserver

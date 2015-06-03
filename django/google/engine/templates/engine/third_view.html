@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+{% load staticfiles %}
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>nMASE - Packet View</title>
+
+  <style type="text/css" media="screen">
+    .source{
+      background-color: rgba(255,0,0,0.3); 
+      color : white;
+    }
+    .destination{
+      background-color: #7CE580;
+      color : black;
+    }
+    .mytable{
+      width: 80%;
+    }
+
+  </style>
+
+  <script src="{%static 'js/jquery.js'%}"></script>
+  <script src="{%static 'js/bootstrap.min.js'%}"></script>
+
+  <link  rel="stylesheet" src="{%static 'css/bootstrap-theme.min.css'%}" />
+  <link href="/static/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="/static/css/styles.css" rel="stylesheet" />
+  <link rel="shortcut icon" type="image/png" href="/static/images/favicon.ico" />
+  
+  <script>
+    
+    function loadmetadata(flowid) {
+      
+      var tim = document.getElementById('time');
+       tim.innerHTML =  MetadataArray[flowid][0][0];
+      var idd = document.getElementById('id');
+       idd.innerHTML = 'Packet ID:' + MetadataArray[flowid][0][1];
+      var dir = document.getElementById('dir');
+       dir.innerHTML = 'Direction:' + MetadataArray[flowid][0][2];
+      var version = document.getElementById('version');
+       version.innerHTML = MetadataArray[flowid][1][0];
+      var hlen = document.getElementById('hlen');
+       hlen.innerHTML = MetadataArray[flowid][1][1];
+      var ttl = document.getElementById('ttl');
+       ttl.innerHTML = MetadataArray[flowid][1][2];
+      var ipproto = document.getElementById('ipproto');
+       ipproto.innerHTML = MetadataArray[flowid][1][3];
+      var sip = document.getElementById('sip');
+       sip.innerHTML =  MetadataArray[flowid][1][4];
+      var dip = document.getElementById('dip');
+       dip.innerHTML = MetadataArray[flowid][1][5];
+      var sport = document.getElementById('sport');
+       sport.innerHTML =  MetadataArray[flowid][2][0];
+      var dport = document.getElementById('dport');
+       dport.innerHTML = MetadataArray[flowid][2][1];
+      var seq = document.getElementById('seq');
+       seq.innerHTML = MetadataArray[flowid][2][2];
+      var ack = document.getElementById('ack');
+       ack.innerHTML = MetadataArray[flowid][2][3];
+      var tlen = document.getElementById('tlen');
+       tlen.innerHTML = MetadataArray[flowid][2][4];
+      var appdata = document.getElementById('appdata');
+       appdata.innerHTML =  MetadataArray[flowid][3]; 
+    };  
+    
+    var MetadataArray = new Array();
+
+    {% for packet in packet_records %}
+      MetadataArray[{{ packet.0.1 }}] = {{packet|safe}};
+    {% endfor %}
+    
+  </script>
+
+</head>
+<body>
+
+<nav class="navbar navbar-fixed-top header">
+  <div class="col-md-12">
+    <div class="navbar-header">
+      <a href="homepage" class="navbar-brand">
+        <img src="/static/images/logo-small.png" width=100 height=30 style="padding-top:-50px">
+      </a>
+      <button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#navbar-collapse1">
+        <i class="glyphicon glyphicon-search"></i>
+      </button>  
+    </div>
+
+    <div class="collapse navbar-collapse" id="navbar-collapse1">
+
+    {%if show_result%}
+      <table class="table" style="width=90%;">
+      <tr>
+        <td class="text-success" style="font-size:17px;"><b>Custom Header</b></td>
+        <td id='time' class="text-success" style="font-size:17px;"></td>
+        <td id='id' class="text-success" style="font-size:17px;"></td>
+        <td id='dir' class="text-success" style="font-size:17px;"></td>
+      </tr>
+      <tr>
+        <td class="text-primary"  style="font-size:17px;" ><b>IP Packet</b></td>
+        <td id='version' class="text-primary"  style="font-size:17px;" ></td>
+        <td id='hlen' class="text-primary" style="font-size:17px;" ></td>
+        <td id='ttl' class="text-primary"  style="font-size:17px;" ></td>
+        <td id='ipproto' class="text-primary"  style="font-size:17px;" ></td>
+        <td id='sip' class="text-primary"  style="font-size:17px;" ></td>
+        <td id='dip' class="text-primary"  style="font-size:17px;" ></td>
+      </tr>
+      <tr>
+        <td class="text-warning"style="font-size:17px;"  ><b>Transport Header</b></td>
+        <td id='sport' class="text-warning" style="font-size:17px;"  ></td>
+        <td id='dport' class="text-warning" style="font-size:17px;"  ></td>
+        <td id='seq' class="text-warning" style="font-size:17px;"  ></td>
+        <td id='ack' class="text-warning" style="font-size:17px;"  ></td>
+        <td id='tlen' class="text-warning" style="font-size:17px;"  ></td>
+      </tr>
+      <tr>
+        <td class="text-danger" style="font-size:17px;" ><b>Application Data</b></td>
+        <td class="text-danger" style="font-size:17px;" colspan=5><div style="height:75px; width:700px; overflow:auto" id='appdata'></div></td>
+      </tr>
+
+      </table>
+
+    </div>  
+  </div> 
+</nav>
+
+<br><br><br><br><br>
+<br><br><br><br><br>
+<br><br><br><br><br>
+<br><br>
+  
+<table class="table mytable table-hover" style="width:80%;margin: 0 auto;">
+  {% for packet in packet_records%}
+     {% if packet.0.2 == "source" %}
+      <tr  onclick="loadmetadata({{ packet.0.1 }})"  class="success">
+     {% endif %}
+     {% if packet.0.2 == "destination" %}
+      <tr onclick="loadmetadata({{ packet.0.1 }})">
+     {% endif %}
+      <td>{{packet.0.1}}</td>
+      <td>{{packet.0.0}}</td>
+      <td>{{packet.2.2}}</td>
+      <td>{{packet.2.3}}</td> 
+      
+      </tr>
+  {% endfor %}  
+</table>
+{% endif %}
+
+<br><br><br>
+<hr>
+
+  {% if related_flows %}
+  <table class="table table-hover" style="width:80%; margin: 0 auto;">
+    <tr>
+      <th> Related flows </th>
+    </tr>
+    {% for related_flow in related_flows %}
+    <tr>
+      <td>
+        <a href="packetview?flowid={{ related_flow.0 }}&slot={{ curslot }}">
+          <div style="height:100%;width:100%">
+            {{ related_flow.1 }}
+          </div>
+        </a>
+      </td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+
+</body>
+</html>

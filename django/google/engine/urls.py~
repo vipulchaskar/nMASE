@@ -1,0 +1,17 @@
+from django.conf.urls import patterns, url
+
+from engine import views
+
+urlpatterns = patterns('',
+    url(r'^flowrecords$', views.flowrecords, name='flowrecords'),
+    url(r'^findpackets', views.findpackets, name='findpackets'),
+    url(r'^HTTPDetail', views.HTTPDetail, name='httpdetail'),
+    url(r'^FTPDetail', views.FTPDetail, name='ftpdetail'),
+    url(r'^SMTPDetail', views.SMTPDetail, name='smtpdetail'),
+    url(r'^DNSDetail', views.DNSDetail, name='dnsdetail'),
+    url(r'^homepage', views.homepage, name='homepage'),
+    url(r'^results', views.homepage, name='homepage'),
+    url(r'^packetview',views.three,name='three'),
+    url(r'^', views.homepage, name='homepage'),
+    url(r'^homepage', views.homepage, name='index'),
+)

@@ -1,0 +1,413 @@
+<!DOCTYPE html>
+
+<html>
+	<head>
+ 		<meta http-equiv="content-type" content="text/html; charset=UTF-8">
+		<meta charset="utf-8">
+ 		<title> nMASE : Search Engine for Networks</title>
+ 		<meta name="generator" content="Bootply" />
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+		
+		<link rel="shortcut icon" type="image/png" href="/static/images/favicon.ico" />
+		<link href="/static/css/bootstrap.min.css" rel="stylesheet">
+		<link href="/static/css/styles.css" rel="stylesheet">
+		<link href="/static/css/fonts.css" rel="stylesheet">
+		<script type="text/javascript" src="/static/js/jquery.js"></script>
+ 		
+ 		<style>
+			a:link {
+    			text-decoration: none;
+			}
+
+			a:visited {
+    			text-decoration: none;
+			}
+
+			a:hover {
+    			text-decoration: underline;
+			}
+
+			a:active {
+    			text-decoration: underline;
+			}
+			.resulttitle {
+				margin-top: 10px;
+				font-size: 18px;
+				color: darkblue;
+				font-family: arial, sans-serif;
+			}
+			.resulttext {
+				font-size: 14px;
+				color: black;
+				font-family: arial, sans-serif;
+			}
+			#metadatapane { 
+				background-color: #ffffff;
+				height:100%;
+				position:fixed;
+				margin-left:60%;
+				padding: 20px;
+				border-left: 1px solid gray;
+				border-right: 1px solid gray;
+				word-wrap: break-word;
+				font-family: arial, sans-serif;
+				font-size: 15px;
+				overflow-y: auto;
+			}
+			.indiv {
+
+			}
+ 		</style>
+ 		
+ 		<script>
+ 			$(document).ready(function(){
+    			var ajax_ips = {{ajax_ip|safe}}
+    			for (ajax_ip in ajax_ips){
+      				call_ajax(ajax_ips[ajax_ip])
+
+    			} 
+    			var ajax_return = []
+    			function call_ajax(ajax_ip){
+          			$.ajax({
+        				method:"POST",
+        				url:"http://127.0.0.1:8000/engine/epra_ip/",
+        				data: {
+          					ping_ip:ajax_ip,
+          					csrfmiddlewaretoken:"{{csrf_token}}"
+          				},
+        				success: function(msg){
+                			var test = $.parseJSON(msg)
+                			if(test.status!="unknown IP"){
+                				if(test.hostname!=""){
+                					var new_div = '<div class="well well-sm" style="margin:0; border:none"> <span class="glyphicon glyphicon-ok" aria-hidden="true" style="color:green;"></span>' +'&nbsp;&nbsp;&nbsp;' 
+                					+
+                					'<span style="font-size:18px;">' +test.hostname + '</span> : ' + test.ip + ' is '+test.status  
+                					+ '</div>';
+                				}
+                				else{
+                					var new_div = '<div class="well well-sm" style="margin:0; border:none"> <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true" style="color:yellow;"></span>' +'&nbsp;&nbsp;&nbsp;' 
+                					+' ' + test.ip + ' is '+ test.status  
+                					+ '</div>';
+                					/*var new_div = '<div class="alert alert-' + test.ping_result + '" style="margin:0;"> <span class="glyphicon glyphicon-exclamation-sign" aria-hidden="true"></span>' +'' 
+                					+' ' + test.ip + ' is '+test.status  
+                					+ '</div>';	*/
+                				}
+                			}
+                			else{
+								var new_div = '<div class="well well-sm" style="margin:0; border:none"> <span class="glyphicon glyphicon-remove" aria-hidden="true" style="color:red;"></span>' +'&nbsp;&nbsp;&nbsp; Host: ' 
+                				+
+                				test.ip + ' is not responding'  
+                				+ '</div>';
+                				}
+                			
+                				
+                			$(".indiv").append(new_div);
+            			},
+            			failure: function(msg){
+              				alert('no' + msg);
+            			}
+     				}).done(function(msg){  
+      				});
+    			}
+    		});
+ 		</script>
+
+ 		<script>
+ 			var MetadataArray = [];
+
+	 		{% for result in results %}
+ 				MetadataArray["{{ result.5 }}{{ result.0 }}"] = "{{ result.3|safe }}";
+ 			{% endfor %}
+
+	 		function loadmetadata(flowid, slot) {
+ 				var MetaDiv = document.getElementById('innerdiv');
+ 				var index = slot + String(flowid)
+   				MetaDiv.innerHTML = MetadataArray[index];
+ 			}
+
+			window.onload = function () {
+
+				CanvasJS.addColorSet("blueShades",
+                	[
+	                "#6699FF",
+    	            "#99CCFF",
+        	        "#3385FF",
+            	    "#8888FF",
+                	"#ADADFF"            
+                	]);
+
+				var chart = new CanvasJS.Chart("chartContainer",
+				{
+					theme: "theme1",
+					colorSet: "blueShades",
+					title:{
+						text: "Protocol distribution",
+						fontFamily: "arial, sans-serif",
+						fontSize: 25,
+						fontWeight: "lighter"
+					},
+                	animationEnabled: true,
+					legend: {
+						verticalAlign: "bottom",
+						horizontalAlign: "center"
+					},
+					theme: "theme1",
+					data: [
+					{        
+						type: "pie",
+						name: "Protocols",
+						indexLabelFontFamily: "arial, sans-serif",       
+						indexLabelFontSize: 20,
+						startAngle:0,
+						indexLabelFontColor: "White",       
+						indexLabelLineColor: "darkgrey", 
+						indexLabelPlacement: "inside",
+						indexLabel: "{y}KB",
+						showInLegend: true,
+						toolTipContent: "{label} - #percent %",
+						dataPoints: [
+							{% for key,value in protopie.items %}
+							{ label: "{{ key }}", y: {{ value }}, legendText: "{{ key }}", indexLabel: "{{ key }}" },
+							{% endfor %}
+					]
+					}
+					],
+					axisY: {
+						suffix: "KB",
+						title: "Usage (in KBs)"
+					}
+				});
+				chart.render();
+
+				var chart2 = new CanvasJS.Chart("chartContainer2",
+				{
+					theme: "theme1",
+					colorSet: "blueShades",
+					title:{
+						text: "Source IP distribution",
+						fontFamily: "arial, sans-serif",
+						fontSize: 25,
+						fontWeight: "lighter"
+					},
+                	animationEnabled: true,
+					legend: {
+						verticalAlign: "bottom",
+						horizontalAlign: "center"
+					},
+					theme: "theme1",
+					width: 550,
+					data: [
+					{        
+						type: "column",
+						name: "Source IP addresses",
+						startAngle:0,
+						indexLabelFontFamily: "arial, sans-serif",       
+						indexLabelFontSize: 15,
+						startAngle:0,
+						indexLabelFontColor: "#4C4C4C",       
+						indexLabelLineColor: "darkgrey", 
+						indexLabelPlacement: "outside",
+						indexLabel: "{y} Flows",
+						showInLegend: true,
+						dataPoints: [
+							{% for tuple in sipgraph %}
+								{ label: "{{ tuple.0 }}", y: {{ tuple.1 }}, legendText: "{{ tuple.0 }}", indexLabel: "{{ tuple.0 }}" },
+							{% endfor %}
+					]
+					}
+					],
+					axisY: {
+						suffix: " Flows",
+						title: "Number of flows",
+						labelFontFamily: "arial, sans-serif",
+						labelFontSize: 10,
+						titleFontSize: 25,
+					},
+					axisX: {
+						labelFontFamily: "arial, sans-serif",
+						labelFontSize: 15,
+					}
+				});
+				chart2.render();
+
+				var chart3 = new CanvasJS.Chart("chartContainer3",
+				{
+					theme: "theme1",
+					colorSet: "blueShades",
+					title:{
+						text: "Destination IP distribution",
+						fontFamily: "arial, sans-serif",
+						fontSize: 25,
+						fontWeight: "lighter"
+					},
+                	animationEnabled: true,
+                	legend: {
+						verticalAlign: "bottom",
+						horizontalAlign: "center"
+					},
+					width: 1000,
+					data: [
+					{        
+						type: "column",
+						name: "Destination IP addresses",
+						startAngle:0,
+						indexLabelFontFamily: "arial, sans-serif",       
+						indexLabelFontSize: 15,
+						startAngle:0,
+						indexLabelFontColor: "#4C4C4C",       
+						indexLabelLineColor: "darkgrey", 
+						indexLabelPlacement: "outside",
+						indexLabel: "{y} Flows",
+						showInLegend: true,
+						dataPoints: [
+							{% for tuple in dipgraph %}
+							{ label: "{{ tuple.0 }}", y: {{ tuple.1 }}, legendText: "{{ tuple.0 }}", indexLabel: "{{ tuple.0 }}" },
+							{% endfor %}
+					]
+					}
+					],
+					axisY: {
+						suffix: " Flows",
+						title: "Number of flows"
+					},
+					axisX: {
+						labelFontFamily: "arial, sans-serif",
+						labelFontSize: 15,
+					}
+				});
+				chart3.render();
+
+				$('.canvasjs-chart-credit').hide();
+			}
+		</script>
+ 	</head>	
+
+	<body bgcolor="white">
+ 		<FORM NAME="joe">
+			<INPUT TYPE="hidden" NAME="burns">
+		</FORM>
+
+	<nav class="navbar navbar-fixed-top header">
+ 		<div class="col-md-12">
+        	<div class="navbar-header">
+          		<a href="homepage" class="navbar-brand"><img src="/static/images/logo-small.png" width=100 height=30 style="padding-top:-50px"></a>
+          		<button type="button" class="navbar-toggle" data-toggle="collapse" data-target="#navbar-collapse1">
+          			<i class="glyphicon glyphicon-search"></i>
+          		</button>
+      
+        	</div>
+        	<div class="collapse navbar-collapse" id="navbar-collapse1">
+          		<form name="bull" method="get" action="results" class="navbar-form pull-left">
+              	<div class="input-group" style="max-width:470px; margin-top: 2%">
+                	<input size="50" type="text" class="form-control" placeholder="Search" name="Query" id="srch-term">
+                	<input type="hidden" name="datetime" size=50 value="" />
+                	<script language="javascript">
+
+		                function getParameterByName(name) {
+ 					 	  	name = name.replace(/[\[]/, "\\[").replace(/[\]]/, "\\]");
+    						var regex = new RegExp("[\\?&]" + name + "=([^&#]*)"),
+        					results = regex.exec(location.search);
+    						return results === null ? "" : decodeURIComponent(results[1].replace(/\+/g, " "));
+						}
+
+                		var locate = window.location
+                		document.joe.burns.value = locate
+
+                		var text = document.joe.burns.value
+
+	      	    	    function delineate(str) {
+                    		theleft = str.indexOf("=") + 1;
+                    		theright = str.indexOf("&");
+                    		return(str.substring(theleft, theright));
+                  		}
+                		var qy= delineate(text)
+                		var res= qy.replace(/[+]/g,' ')
+               			document.bull.Query.value= getParameterByName('Query');
+                		document.bull.datetime.value = getParameterByName('datetime');
+                	</SCRIPT>
+
+                	<div class="input-group-btn">
+                  		<button class="btn btn-default btn-primary" type="submit" name="search"><i class="glyphicon glyphicon-search"></i></button>
+                	</div>
+              	</div>
+          		</form>
+          		<p class="text-info" style="margin-top:25px">{{ page_speed }}</p>
+        	</div>	
+     	</div>	
+		<div role="tabpanel" style="margin-left:3%">
+ 
+  			<ul id="tabs" data-tabs="tabs" class="nav nav-tabs" role="tablist">
+    			<li role="presentation" class="active"><a href="#home" aria-controls="home" role="tab" data-toggle="tab">Results</a></li>
+    			<li role="presentation"><a href="#profile" aria-controls="profile" role="tab" data-toggle="tab">Graphs</a></li>
+  			</ul>
+
+		</div>
+	</nav>
+ 
+	<br><br><br><br><br><br>
+
+	<div class="tab-content my-tab">
+    	<div role="tabpanel" class="tab-pane active" id="home">
+
+    		<div class="container">
+				<div class="row">
+  					<div class="col-md-8">
+  						<div class="outerdiv">
+  							<br>
+  							<div class="indiv">
+  								
+  							</div>
+  						</div>
+  						{% for result in results %}
+						<br>
+						<a href="packetview?flowid={{ result.0 }}&slot={{ result.5 }}" onmouseover="loadmetadata({{ result.0 }}, '{{ result.5 }}')">
+						<div class="resulttitle">
+							{{ result.1 }}
+						</div>
+						</a>
+						<div class="resulttext">
+							Summary: {{ result.2|safe }} {{ result.0 }}.
+						</div>
+    				{% endfor %}
+  					</div>
+  					<div class="col-md-4" id="metadatapane">
+  						<div id="innerdiv" style=""> &nbsp; </div>
+  					</div>
+				</div>
+    		</div>
+
+		</div>
+
+    	<div role="tabpanel" class="tab-pane" id="profile"><br><br>
+
+    		<div class="container">
+				<div class="row">
+  					<div class="col-md-5">
+	  					<div id="chartContainer" style="height: 450px;"></div>
+  					</div>
+  					<div class="col-md-7">
+			  			<div id="chartContainer2" style="height: 450px;"></div>	
+  					</div>
+  				</div>
+  				<div class="row">
+  					<div class="col-md-12">
+  						<div id="chartContainer3" style="width:100%"></div>
+  					</div>
+  				</div>
+  			</div>    		
+    	</div>
+    </div>
+
+  	<script type="text/javascript" src="/static/js/bootstrap.js"></script>
+  	<script type="text/javascript" src="/static/js/canvasjs.min.js"></script>
+    <script type="text/javascript">
+  	$('#profile a').click(function (e) {
+  		e.preventDefault()
+  		$(this).tab('show')
+	})
+ 	</script>
+
+	</body>
+ 
+</html>
+

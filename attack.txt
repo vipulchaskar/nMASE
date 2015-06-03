@@ -1,0 +1,14 @@
+SQL Injection:'
+SQL Injection:UNION SELECT
+SQL Injection:OR 1=1
+XSS:<script>
+XSS:'>
+XSS:alert(
+Directory Traversal:../
+Directory Traversal:/..
+Directory Traversal:/../
+Server Side Include:<?php
+Server Side Include:<?
+Server Side Include:<%
+Server Side Include:{{
+Server Side Include:{%
