@@ -1,6 +1,7 @@
 # README #
 
-**nMASE : A Search Engine for Network Trace**
+nMASE : A Search Engine for Network Trace
+-
 
 A Search Engine which records and analyzes network activity and provides the user with ranked results through a web interface.
 
@@ -23,7 +24,8 @@ This search engine is divided in 3 modules -
 
 * IR and Query processing module (Django project) : Accepts the query from user, performs query processing, retrieves the relevant results from JSON files and bitmap search and displays them in ranked format.
 
-**Detailed working:**
+Detailed working:
+-
 
 When the packet capture module is started, it creates a directory in CWD with current day as its name. (e.g. if date is 31/12/2014, directory "31" will be created) Inside this directory, another directory with current hour as name is created. (e.g. if time is 2:34pm, directory "14" will be created) For each time slot of 1 hour, a new directory is created. (e.g. if this module is run from 2:34pm to 4:34pm, the directories 14, 15, 16 will be created inside outer day directory. Hence, a day directory can have at most 24 subdirectories. (each belonging to one-hour time slot in that day) If any directory already exists, its contents will be overwritten. nMASE can store network activity of past 30-31 days, after which, the old data will be overwritten (Since days will be repeated in the next month, again starting from 1, 2, 3, ... 30/31).
 
@@ -81,7 +83,8 @@ One important functionality provided by nMASE is facility to import PCAP files. 
 **Overview of nMASE Architecture**
 ![Alt text](/architecture-final.png?raw=true "Architecture")
 
-**Features of nMASE:**
+Features of nMASE:
+-
 * On the fly packet capture
 * Deep packet inspection
 * Ability to import PCAP files
