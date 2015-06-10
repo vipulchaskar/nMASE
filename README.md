@@ -7,9 +7,13 @@ A Search Engine which records and analyzes network activity and provides the use
 nMASE is a network monitoring tool created for network administrators. It provides an intuitive search engine interface for administrators to search recorded network activity and get the relevant information quickly.
 
 Protocols currently supported -
+
 Data link layer 	: Ethernet
+
 Network layer		: IPv4
+
 Transport layer		: TCP, UDP
+
 Application layer	: HTTP, DNS, FTP, SMTP
 
 This search engine is divided in 3 modules -
@@ -75,7 +79,7 @@ The web interface for this module is developed in HTML, CSS, Javascript, jQuery.
 One important functionality provided by nMASE is facility to import PCAP files. The user can upload their own PCAP files through the link provided on homepage. Once the PCAP file is uploaded, nMASE will automatically run the first and second module on the packets fetched from this PCAP. This will generate all the flow records, bitmaps indexes and JSON files like a conventional run. The user can then search through the contents of this PCAP file, just the way they are able to do this with regular network packet captures. 
 
 **Overview of nMASE Architecture**
-![alt tag](https://raw.github.com/vipulchaskar/nMASE/architecture-final.png)
+![Alt text](/architecture-final.png?raw=true "Architecture")
 
 **Features of nMASE:**
 * On the fly packet capture
